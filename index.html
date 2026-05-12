@@ -76,6 +76,8 @@
     .done { text-decoration: line-through; color: #94a3b8; }
     .meta { font-size: 0.8rem; color: #64748b; }
     .empty { padding: 10px 12px; color: #64748b; }
+    .due-soon { background: #fef9c3; }
+    .due-today { background: #fee2e2; }
   </style>
 </head>
 <body>
@@ -226,6 +228,20 @@
       return a.createdAt.localeCompare(b.createdAt);
     }
 
+    function dayDiff(fromISO, toISO) {
+      const from = new Date(`${fromISO}T00:00:00`);
+      const to = new Date(`${toISO}T00:00:00`);
+      return Math.floor((to - from) / 86400000);
+    }
+
+    function dueClass(task, selectedDate) {
+      if (!task.deadline) return '';
+      const daysLeft = dayDiff(selectedDate, task.deadline);
+      if (daysLeft === 0) return 'due-today';
+      if (daysLeft > 0 && daysLeft < 2) return 'due-soon';
+      return '';
+    }
+
     function formatCreatedAt(iso) {
       const dt = new Date(iso);
       if (Number.isNaN(dt.getTime())) return iso;
@@ -264,6 +280,8 @@
 
         list.forEach((task) => {
           const li = document.createElement('li');
+          const urgencyClass = dueClass(task, selectedDate);
+          if (urgencyClass) li.classList.add(urgencyClass);
           li.draggable = true;
           li.addEventListener('dragstart', (event) => {
             event.dataTransfer.setData('text/plain', task.id);
