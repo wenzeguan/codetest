@@ -169,21 +169,25 @@
     }
 
     function shouldShowOnDate(task, selectedDate) {
-      if (task.completed) return false;
       if (task.deadline && task.deadline > selectedDate) return false;
       return entryDate(task) <= selectedDate;
     }
 
-    function addTask(text, deadline) {
+    function normalizeDeadline(rawDeadline) {
+      const value = (rawDeadline || '').trim();
+      return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
+    }
+
+    function addTask(text, deadline, selectedDate) {
       const tasks = loadTasks();
       tasks.push({
         id: crypto.randomUUID(),
         text,
-        deadline: deadline || '',
+        deadline: normalizeDeadline(deadline),
         category: autoCategory(text),
         completed: false,
         createdAt: new Date().toISOString(),
-        entryDate: todayISO()
+        entryDate: selectedDate || todayISO()
       });
       saveTasks(tasks);
     }
@@ -201,6 +205,7 @@
     }
 
     function sortTasks(a, b) {
+      if (a.completed !== b.completed) return a.completed ? 1 : -1;
       const aHasDeadline = Boolean(a.deadline);
       const bHasDeadline = Boolean(b.deadline);
       if (aHasDeadline && bHasDeadline && a.deadline !== b.deadline) {
@@ -271,6 +276,10 @@
 
           content.append(text, meta);
 
+          const actions = document.createElement('div');
+          actions.style.display = 'flex';
+          actions.style.gap = '6px';
+
           const editDeadlineButton = document.createElement('button');
           editDeadlineButton.type = 'button';
           editDeadlineButton.textContent = 'Edit deadline';
@@ -281,8 +290,20 @@
             updateTaskDeadline(task.id, nextDeadline);
             render();
           });
+          actions.appendChild(editDeadlineButton);
 
-          li.append(checkbox, content, editDeadlineButton);
+          if (task.completed) {
+            const restoreButton = document.createElement('button');
+            restoreButton.type = 'button';
+            restoreButton.textContent = 'Move to To-do';
+            restoreButton.addEventListener('click', () => {
+              toggleComplete(task.id);
+              render();
+            });
+            actions.appendChild(restoreButton);
+          }
+
+          li.append(checkbox, content, actions);
           ul.appendChild(li);
         });
 
@@ -362,7 +383,7 @@
       const newDeadline = deadlineInput.value || '';
       const existingTask = findOpenTaskByName(text);
 
-      if (existingTask && existingTask.deadline === newDeadline) {
+      if (existingTask && existingTask.deadline === normalizeDeadline(newDeadline)) {
         const suggested = nextPostfixName(text);
         const askedName = window.prompt(
           `A task with the same name and deadline already exists. Suggested name: "${suggested}". Confirm or edit:`,
@@ -370,11 +391,11 @@
         );
         if (askedName === null) return;
         text = askedName.trim() || suggested;
-      } else if (existingTask && existingTask.deadline !== newDeadline) {
+      } else if (existingTask && existingTask.deadline !== normalizeDeadline(newDeadline)) {
         window.alert('Notice: You are adding the same task name with a different deadline.');
       }
 
-      addTask(text, newDeadline);
+      addTask(text, newDeadline, calendarInput.value || todayISO());
       form.reset();
       calendarInput.value = todayISO();
       viewedMonth = new Date(calendarInput.value);
