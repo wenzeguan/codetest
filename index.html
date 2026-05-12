@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simple Daily Todo</title>
+  <style>
+    :root {
+      font-family: Arial, sans-serif;
+      color: #1f2937;
+      background: #f8fafc;
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      display: flex;
+      justify-content: center;
+    }
+    .app {
+      width: min(760px, 100%);
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 18px;
+    }
+    h1 { margin: 0 0 14px; font-size: 1.35rem; }
+    form {
+      display: grid;
+      grid-template-columns: auto 1fr auto auto;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    input, button {
+      font-size: 0.95rem;
+      padding: 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+    }
+    button {
+      background: #111827;
+      color: #fff;
+      cursor: pointer;
+      border-color: #111827;
+    }
+    .calendar { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; margin-bottom: 12px; }
+    .calendar-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .calendar-grid { display:grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+    .day-name { font-size: 0.75rem; color:#64748b; text-align:center; }
+    .day-btn { border:1px solid #e5e7eb; background:#fff; color:#111827; border-radius:8px; padding:8px 0; cursor:pointer; }
+    .day-btn.active { background:#111827; color:#fff; border-color:#111827; }
+    .day-btn.empty { visibility:hidden; }
+    .muted { color: #64748b; font-size: 0.85rem; margin-bottom: 10px; }
+    .category {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .category h2 {
+      margin: 0;
+      padding: 10px 12px;
+      font-size: 1rem;
+      background: #f1f5f9;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    li:last-child { border-bottom: none; }
+    .done { text-decoration: line-through; color: #94a3b8; }
+    .meta { font-size: 0.8rem; color: #64748b; }
+    .empty { padding: 10px 12px; color: #64748b; }
+    .due-soon { background: #fef9c3; }
+    .due-today { background: #fee2e2; }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <h1>Simple Daily Todo</h1>
+    <form id="todo-form">
+      <input id="calendar-input" type="date" aria-label="Selected day" hidden />
+      <input id="task-input" type="text" placeholder="What do you need to do?" required />
+      <input id="deadline-input" type="date" />
+      <button type="submit">Add</button>
+    </form>
+    <section class="calendar">
+      <div class="calendar-head">
+        <button type="button" id="prev-month">◀</button>
+        <strong id="calendar-title"></strong>
+        <button type="button" id="next-month">▶</button>
+      </div>
+      <div id="calendar-grid" class="calendar-grid"></div>
+    </section>
+    <div class="muted">Unfinished tasks automatically appear each day until completed.</div>
+    <div id="board"></div>
+  </main>
+
+  <script>
+    const STORAGE_KEY = 'simple_daily_todos_v2';
+    const LEGACY_STORAGE_KEY = 'simple_daily_todos_v1';
+    const form = document.getElementById('todo-form');
+    const calendarInput = document.getElementById('calendar-input');
+    const taskInput = document.getElementById('task-input');
+    const deadlineInput = document.getElementById('deadline-input');
+    const board = document.getElementById('board');
+    const calendarGrid = document.getElementById('calendar-grid');
+    const calendarTitle = document.getElementById('calendar-title');
+    const prevMonthButton = document.getElementById('prev-month');
+    const nextMonthButton = document.getElementById('next-month');
+
+    const categoryRules = {
+      Work: ['meeting', 'project', 'client', 'report', 'email', 'office', 'task', 'deadline', 'manager', 'team'],
+      'Bill Payment': ['bill', 'rent', 'payment', 'invoice', 'electric', 'water', 'internet', 'phone', 'subscription', 'tax'],
+      Learning: ['learn', 'study', 'course', 'read', 'practice', 'tutorial', 'training', 'homework', 'exam'],
+      Health: ['workout', 'exercise', 'doctor', 'medicine', 'walk', 'run', 'gym', 'sleep'],
+      Personal: ['family', 'friend', 'home', 'clean', 'shopping', 'call', 'cook']
+    };
+
+    const categoryPriority = ['Work', 'Bill Payment', 'Learning', 'Health', 'Personal', 'General'];
+
+    function todayISO() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    function isPastDate(isoDate) {
+      return isoDate < todayISO();
+    }
+
+    let viewedMonth = new Date();
+    viewedMonth.setDate(1);
+
+    function loadTasks() {
+      try {
+        const current = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        if (current.length) return current;
+        const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY)) || [];
+        if (legacy.length) {
+          const migrated = legacy.map((task) => ({
+            ...task,
+            entryDate: task.entryDate || (task.createdAt ? task.createdAt.slice(0, 10) : todayISO())
+          }));
+          saveTasks(migrated);
+          return migrated;
+        }
+        return [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveTasks(tasks) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    }
+
+    function autoCategory(text) {
+      const lower = text.toLowerCase();
+      for (const [category, keywords] of Object.entries(categoryRules)) {
+        if (keywords.some((word) => lower.includes(word))) {
+          return category;
+        }
+      }
+      return 'General';
+    }
+
+    function entryDate(task) {
+      if (task.entryDate) return task.entryDate;
+      if (task.createdAt) return task.createdAt.slice(0, 10);
+      return todayISO();
+    }
+
+    function shouldShowOnDate(task, selectedDate) {
+      return entryDate(task) === selectedDate;
+    }
+
+    function normalizeDeadline(rawDeadline) {
+      const value = (rawDeadline || '').trim();
+      return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
+    }
+
+    function addTask(text, deadline, selectedDate) {
+      const tasks = loadTasks();
+      tasks.push({
+        id: crypto.randomUUID(),
+        text,
+        deadline: normalizeDeadline(deadline),
+        category: autoCategory(text),
+        completed: false,
+        createdAt: new Date().toISOString(),
+        entryDate: selectedDate || todayISO()
+      });
+      saveTasks(tasks);
+    }
+
+    function findOpenTaskByName(text) {
+      const target = text.trim().toLowerCase();
+      return loadTasks().find((task) => !task.completed && task.text.trim().toLowerCase() === target);
+    }
+
+    function toggleComplete(id) {
+      const tasks = loadTasks();
+      const task = tasks.find((t) => t.id === id);
+      if (task) task.completed = !task.completed;
+      saveTasks(tasks);
+    }
+
+    function setTaskCompleted(id, completed) {
+      const tasks = loadTasks();
+      const task = tasks.find((t) => t.id === id);
+      if (!task) return;
+      task.completed = completed;
+      saveTasks(tasks);
+    }
+
+    function sortTasks(a, b) {
+      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+      const aHasDeadline = Boolean(a.deadline);
+      const bHasDeadline = Boolean(b.deadline);
+      if (aHasDeadline && bHasDeadline && a.deadline !== b.deadline) {
+        return a.deadline.localeCompare(b.deadline);
+      }
+      if (aHasDeadline !== bHasDeadline) return aHasDeadline ? -1 : 1;
+      return a.createdAt.localeCompare(b.createdAt);
+    }
+
+    function dayDiff(fromISO, toISO) {
+      const from = new Date(`${fromISO}T00:00:00`);
+      const to = new Date(`${toISO}T00:00:00`);
+      return Math.floor((to - from) / 86400000);
+    }
+
+    function dueClass(task, selectedDate) {
+      if (!task.deadline) return '';
+      const daysLeft = dayDiff(selectedDate, task.deadline);
+      if (daysLeft === 0) return 'due-today';
+      if (daysLeft > 0 && daysLeft < 2) return 'due-soon';
+      return '';
+    }
+
+    function formatCreatedAt(iso) {
+      const dt = new Date(iso);
+      if (Number.isNaN(dt.getTime())) return iso;
+      return dt.toLocaleString();
+    }
+
+    function render() {
+      const selectedDate = calendarInput.value || todayISO();
+      const tasks = loadTasks().filter((task) => shouldShowOnDate(task, selectedDate)).sort(sortTasks);
+      const todoTasks = tasks.filter((task) => !task.completed);
+      const completedTasks = tasks.filter((task) => task.completed);
+      board.innerHTML = '';
+
+      const createSection = (title, list, dropCompletedState) => {
+        const section = document.createElement('section');
+        section.className = 'category';
+        const heading = document.createElement('h2');
+        heading.textContent = title;
+        const ul = document.createElement('ul');
+        ul.addEventListener('dragover', (event) => event.preventDefault());
+        ul.addEventListener('drop', (event) => {
+          event.preventDefault();
+          const taskId = event.dataTransfer.getData('text/plain');
+          if (!taskId) return;
+          setTaskCompleted(taskId, dropCompletedState);
+          render();
+        });
+
+        if (!list.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = `No tasks in ${title.toLowerCase()}.`;
+          section.append(heading, empty);
+          return section;
+        }
+
+        list.forEach((task) => {
+          const li = document.createElement('li');
+          const urgencyClass = dueClass(task, selectedDate);
+          if (urgencyClass) li.classList.add(urgencyClass);
+          li.draggable = true;
+          li.addEventListener('dragstart', (event) => {
+            event.dataTransfer.setData('text/plain', task.id);
+          });
+
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.checked = task.completed;
+          checkbox.addEventListener('change', () => {
+            toggleComplete(task.id);
+            render();
+          });
+
+          const content = document.createElement('div');
+          const text = document.createElement('div');
+          text.textContent = task.text;
+          if (task.completed) text.classList.add('done');
+          text.title = 'Double-click to edit task name';
+          text.addEventListener('dblclick', () => {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = task.text;
+            input.style.width = '100%';
+            input.style.boxSizing = 'border-box';
+            input.style.border = '1px solid #2563eb';
+            input.style.borderRadius = '6px';
+            input.style.padding = '6px 8px';
+            text.replaceWith(input);
+            input.focus();
+            input.select();
+
+            const finishEdit = (save) => {
+              if (save) updateTaskName(task.id, input.value);
+              render();
+            };
+
+            input.addEventListener('keydown', (event) => {
+              if (event.key === 'Enter') finishEdit(true);
+              if (event.key === 'Escape') finishEdit(false);
+            });
+            input.addEventListener('blur', () => finishEdit(true), { once: true });
+          });
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.textContent = task.deadline ? `Deadline: ${task.deadline} • Entered: ${entryDate(task)}` : `No deadline • Entered: ${entryDate(task)}`;
+          content.append(text, meta);
+
+          const editDeadlineButton = document.createElement('button');
+          editDeadlineButton.type = 'button';
+          editDeadlineButton.textContent = 'Edit deadline';
+          editDeadlineButton.addEventListener('click', () => {
+            const input = window.prompt('Set deadline in YYYY-MM-DD format. Leave blank to clear deadline.', task.deadline || '');
+            if (input === null) return;
+            updateTaskDeadline(task.id, input.trim());
+            render();
+          });
+
+          const deleteButton = document.createElement('button');
+          deleteButton.type = 'button';
+          deleteButton.textContent = 'Delete';
+          deleteButton.addEventListener('click', () => {
+            const confirmed = window.confirm(`Delete task "${task.text}"?`);
+            if (!confirmed) return;
+            deleteTask(task.id);
+            render();
+          });
+
+          const actionGroup = document.createElement('div');
+          actionGroup.style.display = 'flex';
+          actionGroup.style.gap = '6px';
+          actionGroup.append(editDeadlineButton, deleteButton);
+
+          li.append(checkbox, content, actionGroup);
+          ul.appendChild(li);
+        });
+
+        section.append(heading, ul);
+        return section;
+      };
+
+      board.appendChild(createSection('To-do list', todoTasks, false));
+      board.appendChild(createSection('Completed', completedTasks, true));
+      renderCalendar();
+    }
+
+    
+    function nextPostfixName(baseName) {
+      const base = baseName.trim();
+      const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`^${escaped}(?:_(\\d+))?$`, 'i');
+      const tasks = loadTasks();
+      let maxNum = 1;
+      tasks.forEach((task) => {
+        const match = task.text.trim().match(pattern);
+        if (!match) return;
+        const number = match[1] ? Number(match[1]) : 1;
+        if (number > maxNum) maxNum = number;
+      });
+      return `${base}_${maxNum + 1}`;
+    }
+
+    function updateTaskDeadline(id, deadline) {
+      const tasks = loadTasks();
+      const target = tasks.find((task) => task.id === id);
+      if (!target) return;
+      target.deadline = deadline;
+      saveTasks(tasks);
+    }
+
+    function deleteTask(id) {
+      const tasks = loadTasks().filter((task) => task.id !== id);
+      saveTasks(tasks);
+    }
+
+    function updateTaskName(id, nextName) {
+      const cleanName = nextName.trim();
+      if (!cleanName) return;
+      const tasks = loadTasks();
+      const target = tasks.find((task) => task.id === id);
+      if (!target) return;
+      target.text = cleanName;
+      target.category = autoCategory(cleanName);
+      saveTasks(tasks);
+    }
+
+    function renderCalendar() {
+      const year = viewedMonth.getFullYear();
+      const month = viewedMonth.getMonth();
+      calendarTitle.textContent = viewedMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+      calendarGrid.innerHTML = '';
+
+      ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach((d) => {
+        const el = document.createElement('div');
+        el.className = 'day-name';
+        el.textContent = d;
+        calendarGrid.appendChild(el);
+      });
+
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+      for (let i = 0; i < firstDay; i += 1) {
+        const spacer = document.createElement('button');
+        spacer.className = 'day-btn empty';
+        spacer.type = 'button';
+        calendarGrid.appendChild(spacer);
+      }
+
+      for (let day = 1; day <= daysInMonth; day += 1) {
+        const iso = new Date(year, month, day).toISOString().slice(0, 10);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'day-btn';
+        btn.textContent = String(day);
+        if (calendarInput.value === iso) btn.classList.add('active');
+        btn.addEventListener('click', () => {
+          calendarInput.value = iso;
+          render();
+        });
+        calendarGrid.appendChild(btn);
+      }
+    }
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const selectedDate = calendarInput.value || todayISO();
+      if (isPastDate(selectedDate)) {
+        window.alert('You cannot add a new task to a past date. You can still view past-day records.');
+        return;
+      }
+      let text = taskInput.value.trim();
+      if (!text) return;
+      const newDeadline = deadlineInput.value || '';
+      const existingTask = findOpenTaskByName(text);
+
+      if (existingTask && existingTask.deadline === normalizeDeadline(newDeadline)) {
+        const suggested = nextPostfixName(text);
+        const askedName = window.prompt(
+          `A task with the same name and deadline already exists. Suggested name: "${suggested}". Confirm or edit:`,
+          suggested
+        );
+        if (askedName === null) return;
+        text = askedName.trim() || suggested;
+      } else if (existingTask && existingTask.deadline !== normalizeDeadline(newDeadline)) {
+        window.alert('Notice: You are adding the same task name with a different deadline.');
+      }
+
+      addTask(text, newDeadline, selectedDate);
+      form.reset();
+      calendarInput.value = todayISO();
+      viewedMonth = new Date(calendarInput.value);
+      viewedMonth.setDate(1);
+      render();
+    });
+
+    prevMonthButton.addEventListener('click', () => {
+      viewedMonth.setMonth(viewedMonth.getMonth() - 1);
+      renderCalendar();
+    });
+
+    nextMonthButton.addEventListener('click', () => {
+      viewedMonth.setMonth(viewedMonth.getMonth() + 1);
+      renderCalendar();
+    });
+
+    calendarInput.addEventListener('change', () => {
+      viewedMonth = new Date(calendarInput.value || todayISO());
+      viewedMonth.setDate(1);
+      render();
+    });
+
+    calendarInput.value = todayISO();
+    viewedMonth = new Date(calendarInput.value);
+    viewedMonth.setDate(1);
+
+    render();
+  </script>
+</body>
+</html>
