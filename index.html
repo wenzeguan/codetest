@@ -26,7 +26,7 @@
     h1 { margin: 0 0 14px; font-size: 1.35rem; }
     form {
       display: grid;
-      grid-template-columns: auto 1fr auto auto;
+      grid-template-columns: 1fr auto auto;
       gap: 8px;
       margin-bottom: 16px;
     }
@@ -75,7 +75,6 @@
   <main class="app">
     <h1>Simple Daily Todo</h1>
     <form id="todo-form">
-      <input id="calendar-input" type="date" aria-label="Select day" />
       <input id="task-input" type="text" placeholder="What do you need to do?" required />
       <input id="deadline-input" type="date" />
       <button type="submit">Add</button>
@@ -85,10 +84,8 @@
   </main>
 
   <script>
-    const STORAGE_KEY = 'simple_daily_todos_v2';
-    const LEGACY_STORAGE_KEY = 'simple_daily_todos_v1';
+    const STORAGE_KEY = 'simple_daily_todos_v1';
     const form = document.getElementById('todo-form');
-    const calendarInput = document.getElementById('calendar-input');
     const taskInput = document.getElementById('task-input');
     const deadlineInput = document.getElementById('deadline-input');
     const board = document.getElementById('board');
@@ -109,18 +106,7 @@
 
     function loadTasks() {
       try {
-        const current = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-        if (current.length) return current;
-        const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY)) || [];
-        if (legacy.length) {
-          const migrated = legacy.map((task) => ({
-            ...task,
-            entryDate: task.entryDate || (task.createdAt ? task.createdAt.slice(0, 10) : todayISO())
-          }));
-          saveTasks(migrated);
-          return migrated;
-        }
-        return [];
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
       } catch {
         return [];
       }
@@ -140,16 +126,10 @@
       return 'General';
     }
 
-    function entryDate(task) {
-      if (task.entryDate) return task.entryDate;
-      if (task.createdAt) return task.createdAt.slice(0, 10);
-      return todayISO();
-    }
-
-    function shouldShowOnDate(task, selectedDate) {
+    function shouldShowToday(task) {
       if (task.completed) return false;
-      if (task.deadline && task.deadline > selectedDate) return false;
-      return entryDate(task) <= selectedDate;
+      if (task.deadline && task.deadline > todayISO()) return false;
+      return true;
     }
 
     function addTask(text, deadline) {
@@ -160,8 +140,7 @@
         deadline: deadline || '',
         category: autoCategory(text),
         completed: false,
-        createdAt: new Date().toISOString(),
-        entryDate: todayISO()
+        createdAt: new Date().toISOString()
       });
       saveTasks(tasks);
     }
@@ -183,15 +162,8 @@
       return a.createdAt.localeCompare(b.createdAt);
     }
 
-    function formatCreatedAt(iso) {
-      const dt = new Date(iso);
-      if (Number.isNaN(dt.getTime())) return iso;
-      return dt.toLocaleString();
-    }
-
     function render() {
-      const selectedDate = calendarInput.value || todayISO();
-      const tasks = loadTasks().filter((task) => shouldShowOnDate(task, selectedDate)).sort(sortTasks);
+      const tasks = loadTasks().filter(shouldShowToday).sort(sortTasks);
       const grouped = new Map(categoryPriority.map((c) => [c, []]));
 
       tasks.forEach((task) => {
@@ -234,13 +206,7 @@
 
           const meta = document.createElement('div');
           meta.className = 'meta';
-          const baseMeta = task.deadline ? `Deadline: ${task.deadline}` : 'No deadline';
-          const taskEntryDate = entryDate(task);
-          if (taskEntryDate < selectedDate) {
-            meta.textContent = `${baseMeta} • Carried over from ${taskEntryDate} • Created: ${formatCreatedAt(task.createdAt)}`;
-          } else {
-            meta.textContent = `${baseMeta} • Entered: ${taskEntryDate}`;
-          }
+          meta.textContent = task.deadline ? `Deadline: ${task.deadline}` : 'No deadline';
 
           content.append(text, meta);
 
@@ -259,12 +225,8 @@
       if (!text) return;
       addTask(text, deadlineInput.value);
       form.reset();
-      calendarInput.value = todayISO();
       render();
     });
-
-    calendarInput.value = todayISO();
-    calendarInput.addEventListener('change', render);
 
     render();
   </script>
