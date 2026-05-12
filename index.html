@@ -126,6 +126,10 @@
       return new Date().toISOString().slice(0, 10);
     }
 
+    function isPastDate(isoDate) {
+      return isoDate < todayISO();
+    }
+
     let viewedMonth = new Date();
     viewedMonth.setDate(1);
 
@@ -369,6 +373,11 @@
 
     form.addEventListener('submit', (event) => {
       event.preventDefault();
+      const selectedDate = calendarInput.value || todayISO();
+      if (isPastDate(selectedDate)) {
+        window.alert('You cannot add a new task to a past date. You can still view past-day records.');
+        return;
+      }
       let text = taskInput.value.trim();
       if (!text) return;
       const newDeadline = deadlineInput.value || '';
@@ -386,7 +395,7 @@
         window.alert('Notice: You are adding the same task name with a different deadline.');
       }
 
-      addTask(text, newDeadline, calendarInput.value || todayISO());
+      addTask(text, newDeadline, selectedDate);
       form.reset();
       calendarInput.value = todayISO();
       viewedMonth = new Date(calendarInput.value);
