@@ -86,6 +86,7 @@
 
   <script>
     const STORAGE_KEY = 'simple_daily_todos_v2';
+    const LEGACY_STORAGE_KEY = 'simple_daily_todos_v1';
     const form = document.getElementById('todo-form');
     const calendarInput = document.getElementById('calendar-input');
     const taskInput = document.getElementById('task-input');
@@ -108,7 +109,18 @@
 
     function loadTasks() {
       try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        const current = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        if (current.length) return current;
+        const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY)) || [];
+        if (legacy.length) {
+          const migrated = legacy.map((task) => ({
+            ...task,
+            entryDate: task.entryDate || (task.createdAt ? task.createdAt.slice(0, 10) : todayISO())
+          }));
+          saveTasks(migrated);
+          return migrated;
+        }
+        return [];
       } catch {
         return [];
       }
