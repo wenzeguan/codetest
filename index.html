@@ -169,8 +169,7 @@
     }
 
     function shouldShowOnDate(task, selectedDate) {
-      if (task.deadline && task.deadline > selectedDate) return false;
-      return entryDate(task) <= selectedDate;
+      return entryDate(task) === selectedDate;
     }
 
     function normalizeDeadline(rawDeadline) {
@@ -204,6 +203,14 @@
       saveTasks(tasks);
     }
 
+    function setTaskCompleted(id, completed) {
+      const tasks = loadTasks();
+      const task = tasks.find((t) => t.id === id);
+      if (!task) return;
+      task.completed = completed;
+      saveTasks(tasks);
+    }
+
     function sortTasks(a, b) {
       if (a.completed !== b.completed) return a.completed ? 1 : -1;
       const aHasDeadline = Boolean(a.deadline);
@@ -224,32 +231,39 @@
     function render() {
       const selectedDate = calendarInput.value || todayISO();
       const tasks = loadTasks().filter((task) => shouldShowOnDate(task, selectedDate)).sort(sortTasks);
-      const grouped = new Map(categoryPriority.map((c) => [c, []]));
-
-      tasks.forEach((task) => {
-        if (!grouped.has(task.category)) grouped.set(task.category, []);
-        grouped.get(task.category).push(task);
-      });
-
+      const todoTasks = tasks.filter((task) => !task.completed);
+      const completedTasks = tasks.filter((task) => task.completed);
       board.innerHTML = '';
 
-      const entries = Array.from(grouped.entries()).filter(([, list]) => list.length > 0);
-
-      if (!entries.length) {
-        board.innerHTML = '<div class="empty">No active tasks today.</div>';
-        return;
-      }
-
-      entries.forEach(([category, list]) => {
+      const createSection = (title, list, dropCompletedState) => {
         const section = document.createElement('section');
         section.className = 'category';
-
         const heading = document.createElement('h2');
-        heading.textContent = category;
-
+        heading.textContent = title;
         const ul = document.createElement('ul');
+        ul.addEventListener('dragover', (event) => event.preventDefault());
+        ul.addEventListener('drop', (event) => {
+          event.preventDefault();
+          const taskId = event.dataTransfer.getData('text/plain');
+          if (!taskId) return;
+          setTaskCompleted(taskId, dropCompletedState);
+          render();
+        });
+
+        if (!list.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = `No tasks in ${title.toLowerCase()}.`;
+          section.append(heading, empty);
+          return section;
+        }
+
         list.forEach((task) => {
           const li = document.createElement('li');
+          li.draggable = true;
+          li.addEventListener('dragstart', (event) => {
+            event.dataTransfer.setData('text/plain', task.id);
+          });
 
           const checkbox = document.createElement('input');
           checkbox.type = 'checkbox';
@@ -263,22 +277,10 @@
           const text = document.createElement('div');
           text.textContent = task.text;
           if (task.completed) text.classList.add('done');
-
           const meta = document.createElement('div');
           meta.className = 'meta';
-          const baseMeta = task.deadline ? `Deadline: ${task.deadline}` : 'No deadline';
-          const taskEntryDate = entryDate(task);
-          if (taskEntryDate < selectedDate) {
-            meta.textContent = `${baseMeta} • Carried over from ${taskEntryDate} • Created: ${formatCreatedAt(task.createdAt)}`;
-          } else {
-            meta.textContent = `${baseMeta} • Entered: ${taskEntryDate}`;
-          }
-
+          meta.textContent = task.deadline ? `Deadline: ${task.deadline} • Entered: ${entryDate(task)}` : `No deadline • Entered: ${entryDate(task)}`;
           content.append(text, meta);
-
-          const actions = document.createElement('div');
-          actions.style.display = 'flex';
-          actions.style.gap = '6px';
 
           const editDeadlineButton = document.createElement('button');
           editDeadlineButton.type = 'button';
@@ -286,31 +288,20 @@
           editDeadlineButton.addEventListener('click', () => {
             const input = window.prompt('Set deadline in YYYY-MM-DD format. Leave blank to clear deadline.', task.deadline || '');
             if (input === null) return;
-            const nextDeadline = input.trim();
-            updateTaskDeadline(task.id, nextDeadline);
+            updateTaskDeadline(task.id, input.trim());
             render();
           });
-          actions.appendChild(editDeadlineButton);
 
-          if (task.completed) {
-            const restoreButton = document.createElement('button');
-            restoreButton.type = 'button';
-            restoreButton.textContent = 'Move to To-do';
-            restoreButton.addEventListener('click', () => {
-              toggleComplete(task.id);
-              render();
-            });
-            actions.appendChild(restoreButton);
-          }
-
-          li.append(checkbox, content, actions);
+          li.append(checkbox, content, editDeadlineButton);
           ul.appendChild(li);
         });
 
         section.append(heading, ul);
-        board.appendChild(section);
-      });
+        return section;
+      };
 
+      board.appendChild(createSection('To-do list', todoTasks, false));
+      board.appendChild(createSection('Completed', completedTasks, true));
       renderCalendar();
     }
 
