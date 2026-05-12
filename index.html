@@ -301,10 +301,28 @@
           if (task.completed) text.classList.add('done');
           text.title = 'Double-click to edit task name';
           text.addEventListener('dblclick', () => {
-            const nextName = window.prompt('Edit task name:', task.text);
-            if (nextName === null) return;
-            updateTaskName(task.id, nextName);
-            render();
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = task.text;
+            input.style.width = '100%';
+            input.style.boxSizing = 'border-box';
+            input.style.border = '1px solid #2563eb';
+            input.style.borderRadius = '6px';
+            input.style.padding = '6px 8px';
+            text.replaceWith(input);
+            input.focus();
+            input.select();
+
+            const finishEdit = (save) => {
+              if (save) updateTaskName(task.id, input.value);
+              render();
+            };
+
+            input.addEventListener('keydown', (event) => {
+              if (event.key === 'Enter') finishEdit(true);
+              if (event.key === 'Escape') finishEdit(false);
+            });
+            input.addEventListener('blur', () => finishEdit(true), { once: true });
           });
           const meta = document.createElement('div');
           meta.className = 'meta';
