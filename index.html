@@ -26,7 +26,7 @@
     h1 { margin: 0 0 14px; font-size: 1.35rem; }
     form {
       display: grid;
-      grid-template-columns: 1fr auto auto;
+      grid-template-columns: auto 1fr auto auto;
       gap: 8px;
       margin-bottom: 16px;
     }
@@ -75,6 +75,7 @@
   <main class="app">
     <h1>Simple Daily Todo</h1>
     <form id="todo-form">
+      <input id="calendar-input" type="date" aria-label="Select day" />
       <input id="task-input" type="text" placeholder="What do you need to do?" required />
       <input id="deadline-input" type="date" />
       <button type="submit">Add</button>
@@ -84,8 +85,10 @@
   </main>
 
   <script>
-    const STORAGE_KEY = 'simple_daily_todos_v1';
+    const STORAGE_KEY = 'simple_daily_todos_v2';
+    const LEGACY_STORAGE_KEY = 'simple_daily_todos_v1';
     const form = document.getElementById('todo-form');
+    const calendarInput = document.getElementById('calendar-input');
     const taskInput = document.getElementById('task-input');
     const deadlineInput = document.getElementById('deadline-input');
     const board = document.getElementById('board');
@@ -106,7 +109,18 @@
 
     function loadTasks() {
       try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        const current = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        if (current.length) return current;
+        const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY)) || [];
+        if (legacy.length) {
+          const migrated = legacy.map((task) => ({
+            ...task,
+            entryDate: task.entryDate || (task.createdAt ? task.createdAt.slice(0, 10) : todayISO())
+          }));
+          saveTasks(migrated);
+          return migrated;
+        }
+        return [];
       } catch {
         return [];
       }
@@ -126,10 +140,16 @@
       return 'General';
     }
 
-    function shouldShowToday(task) {
+    function entryDate(task) {
+      if (task.entryDate) return task.entryDate;
+      if (task.createdAt) return task.createdAt.slice(0, 10);
+      return todayISO();
+    }
+
+    function shouldShowOnDate(task, selectedDate) {
       if (task.completed) return false;
-      if (task.deadline && task.deadline > todayISO()) return false;
-      return true;
+      if (task.deadline && task.deadline > selectedDate) return false;
+      return entryDate(task) <= selectedDate;
     }
 
     function addTask(text, deadline) {
@@ -140,9 +160,15 @@
         deadline: deadline || '',
         category: autoCategory(text),
         completed: false,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        entryDate: todayISO()
       });
       saveTasks(tasks);
+    }
+
+    function findOpenTaskByName(text) {
+      const target = text.trim().toLowerCase();
+      return loadTasks().find((task) => !task.completed && task.text.trim().toLowerCase() === target);
     }
 
     function toggleComplete(id) {
@@ -162,8 +188,15 @@
       return a.createdAt.localeCompare(b.createdAt);
     }
 
+    function formatCreatedAt(iso) {
+      const dt = new Date(iso);
+      if (Number.isNaN(dt.getTime())) return iso;
+      return dt.toLocaleString();
+    }
+
     function render() {
-      const tasks = loadTasks().filter(shouldShowToday).sort(sortTasks);
+      const selectedDate = calendarInput.value || todayISO();
+      const tasks = loadTasks().filter((task) => shouldShowOnDate(task, selectedDate)).sort(sortTasks);
       const grouped = new Map(categoryPriority.map((c) => [c, []]));
 
       tasks.forEach((task) => {
@@ -206,7 +239,13 @@
 
           const meta = document.createElement('div');
           meta.className = 'meta';
-          meta.textContent = task.deadline ? `Deadline: ${task.deadline}` : 'No deadline';
+          const baseMeta = task.deadline ? `Deadline: ${task.deadline}` : 'No deadline';
+          const taskEntryDate = entryDate(task);
+          if (taskEntryDate < selectedDate) {
+            meta.textContent = `${baseMeta} • Carried over from ${taskEntryDate} • Created: ${formatCreatedAt(task.createdAt)}`;
+          } else {
+            meta.textContent = `${baseMeta} • Entered: ${taskEntryDate}`;
+          }
 
           content.append(text, meta);
 
@@ -221,12 +260,48 @@
 
     form.addEventListener('submit', (event) => {
       event.preventDefault();
-      const text = taskInput.value.trim();
+      let text = taskInput.value.trim();
       if (!text) return;
-      addTask(text, deadlineInput.value);
+      const newDeadline = deadlineInput.value || '';
+      const existingTask = findOpenTaskByName(text);
+
+      if (existingTask && newDeadline && existingTask.deadline !== newDeadline) {
+        const confirmed = window.confirm(`Confirm to change same entry deadline to ${newDeadline}?`);
+        if (confirmed) {
+          const tasks = loadTasks();
+          const original = tasks.find((task) => task.id === existingTask.id);
+          if (original) {
+            original.deadline = newDeadline;
+            saveTasks(tasks);
+          }
+          form.reset();
+          calendarInput.value = todayISO();
+          render();
+        }
+        return;
+      }
+
+      if (existingTask && !newDeadline) {
+        const suggested = `${text}_1`;
+        const askedName = window.prompt(
+          `Same entry name detected. Rename to "${suggested}"? Confirm or change name:`,
+          suggested
+        );
+        if (askedName === null) return;
+        const customName = askedName.trim() || suggested;
+        const confirmedRename = window.confirm(`Use "${customName}" as the new entry name?`);
+        if (!confirmedRename) return;
+        text = customName;
+      }
+
+      addTask(text, newDeadline);
       form.reset();
+      calendarInput.value = todayISO();
       render();
     });
+
+    calendarInput.value = todayISO();
+    calendarInput.addEventListener('change', render);
 
     render();
   </script>
