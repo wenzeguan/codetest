@@ -299,6 +299,13 @@
           const text = document.createElement('div');
           text.textContent = task.text;
           if (task.completed) text.classList.add('done');
+          text.title = 'Double-click to edit task name';
+          text.addEventListener('dblclick', () => {
+            const nextName = window.prompt('Edit task name:', task.text);
+            if (nextName === null) return;
+            updateTaskName(task.id, nextName);
+            render();
+          });
           const meta = document.createElement('div');
           meta.className = 'meta';
           meta.textContent = task.deadline ? `Deadline: ${task.deadline} • Entered: ${entryDate(task)}` : `No deadline • Entered: ${entryDate(task)}`;
@@ -368,6 +375,17 @@
 
     function deleteTask(id) {
       const tasks = loadTasks().filter((task) => task.id !== id);
+      saveTasks(tasks);
+    }
+
+    function updateTaskName(id, nextName) {
+      const cleanName = nextName.trim();
+      if (!cleanName) return;
+      const tasks = loadTasks();
+      const target = tasks.find((task) => task.id === id);
+      if (!target) return;
+      target.text = cleanName;
+      target.category = autoCategory(cleanName);
       saveTasks(tasks);
     }
 
