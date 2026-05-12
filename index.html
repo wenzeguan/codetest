@@ -42,6 +42,13 @@
       cursor: pointer;
       border-color: #111827;
     }
+    .calendar { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; margin-bottom: 12px; }
+    .calendar-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .calendar-grid { display:grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+    .day-name { font-size: 0.75rem; color:#64748b; text-align:center; }
+    .day-btn { border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:8px 0; cursor:pointer; }
+    .day-btn.active { background:#111827; color:#fff; border-color:#111827; }
+    .day-btn.empty { visibility:hidden; }
     .muted { color: #64748b; font-size: 0.85rem; margin-bottom: 10px; }
     .category {
       border: 1px solid #e5e7eb;
@@ -75,11 +82,19 @@
   <main class="app">
     <h1>Simple Daily Todo</h1>
     <form id="todo-form">
-      <input id="calendar-input" type="date" aria-label="Select day" />
+      <input id="calendar-input" type="date" aria-label="Selected day" hidden />
       <input id="task-input" type="text" placeholder="What do you need to do?" required />
       <input id="deadline-input" type="date" />
       <button type="submit">Add</button>
     </form>
+    <section class="calendar">
+      <div class="calendar-head">
+        <button type="button" id="prev-month">◀</button>
+        <strong id="calendar-title"></strong>
+        <button type="button" id="next-month">▶</button>
+      </div>
+      <div id="calendar-grid" class="calendar-grid"></div>
+    </section>
     <div class="muted">Unfinished tasks automatically appear each day until completed.</div>
     <div id="board"></div>
   </main>
@@ -92,6 +107,10 @@
     const taskInput = document.getElementById('task-input');
     const deadlineInput = document.getElementById('deadline-input');
     const board = document.getElementById('board');
+    const calendarGrid = document.getElementById('calendar-grid');
+    const calendarTitle = document.getElementById('calendar-title');
+    const prevMonthButton = document.getElementById('prev-month');
+    const nextMonthButton = document.getElementById('next-month');
 
     const categoryRules = {
       Work: ['meeting', 'project', 'client', 'report', 'email', 'office', 'task', 'deadline', 'manager', 'team'],
@@ -106,6 +125,9 @@
     function todayISO() {
       return new Date().toISOString().slice(0, 10);
     }
+
+    let viewedMonth = new Date();
+    viewedMonth.setDate(1);
 
     function loadTasks() {
       try {
@@ -249,13 +271,88 @@
 
           content.append(text, meta);
 
-          li.append(checkbox, content);
+          const editDeadlineButton = document.createElement('button');
+          editDeadlineButton.type = 'button';
+          editDeadlineButton.textContent = 'Edit deadline';
+          editDeadlineButton.addEventListener('click', () => {
+            const input = window.prompt('Set deadline in YYYY-MM-DD format. Leave blank to clear deadline.', task.deadline || '');
+            if (input === null) return;
+            const nextDeadline = input.trim();
+            updateTaskDeadline(task.id, nextDeadline);
+            render();
+          });
+
+          li.append(checkbox, content, editDeadlineButton);
           ul.appendChild(li);
         });
 
         section.append(heading, ul);
         board.appendChild(section);
       });
+
+      renderCalendar();
+    }
+
+    
+    function nextPostfixName(baseName) {
+      const base = baseName.trim();
+      const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`^${escaped}(?:_(\\d+))?$`, 'i');
+      const tasks = loadTasks();
+      let maxNum = 1;
+      tasks.forEach((task) => {
+        const match = task.text.trim().match(pattern);
+        if (!match) return;
+        const number = match[1] ? Number(match[1]) : 1;
+        if (number > maxNum) maxNum = number;
+      });
+      return `${base}_${maxNum + 1}`;
+    }
+
+    function updateTaskDeadline(id, deadline) {
+      const tasks = loadTasks();
+      const target = tasks.find((task) => task.id === id);
+      if (!target) return;
+      target.deadline = deadline;
+      saveTasks(tasks);
+    }
+
+    function renderCalendar() {
+      const year = viewedMonth.getFullYear();
+      const month = viewedMonth.getMonth();
+      calendarTitle.textContent = viewedMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+      calendarGrid.innerHTML = '';
+
+      ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach((d) => {
+        const el = document.createElement('div');
+        el.className = 'day-name';
+        el.textContent = d;
+        calendarGrid.appendChild(el);
+      });
+
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+      for (let i = 0; i < firstDay; i += 1) {
+        const spacer = document.createElement('button');
+        spacer.className = 'day-btn empty';
+        spacer.type = 'button';
+        calendarGrid.appendChild(spacer);
+      }
+
+      for (let day = 1; day <= daysInMonth; day += 1) {
+        const iso = new Date(year, month, day).toISOString().slice(0, 10);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'day-btn';
+        btn.textContent = String(day);
+        if (calendarInput.value === iso) btn.classList.add('active');
+        btn.addEventListener('click', () => {
+          calendarInput.value = iso;
+          render();
+        });
+        calendarGrid.appendChild(btn);
+      }
     }
 
     form.addEventListener('submit', (event) => {
@@ -265,43 +362,45 @@
       const newDeadline = deadlineInput.value || '';
       const existingTask = findOpenTaskByName(text);
 
-      if (existingTask && newDeadline && existingTask.deadline !== newDeadline) {
-        const confirmed = window.confirm(`Confirm to change same entry deadline to ${newDeadline}?`);
-        if (confirmed) {
-          const tasks = loadTasks();
-          const original = tasks.find((task) => task.id === existingTask.id);
-          if (original) {
-            original.deadline = newDeadline;
-            saveTasks(tasks);
-          }
-          form.reset();
-          calendarInput.value = todayISO();
-          render();
-        }
-        return;
-      }
-
-      if (existingTask && !newDeadline) {
-        const suggested = `${text}_1`;
+      if (existingTask && existingTask.deadline === newDeadline) {
+        const suggested = nextPostfixName(text);
         const askedName = window.prompt(
-          `Same entry name detected. Rename to "${suggested}"? Confirm or change name:`,
+          `A task with the same name and deadline already exists. Suggested name: "${suggested}". Confirm or edit:`,
           suggested
         );
         if (askedName === null) return;
-        const customName = askedName.trim() || suggested;
-        const confirmedRename = window.confirm(`Use "${customName}" as the new entry name?`);
-        if (!confirmedRename) return;
-        text = customName;
+        text = askedName.trim() || suggested;
+      } else if (existingTask && existingTask.deadline !== newDeadline) {
+        window.alert('Notice: You are adding the same task name with a different deadline.');
       }
 
       addTask(text, newDeadline);
       form.reset();
       calendarInput.value = todayISO();
+      viewedMonth = new Date(calendarInput.value);
+      viewedMonth.setDate(1);
+      render();
+    });
+
+    prevMonthButton.addEventListener('click', () => {
+      viewedMonth.setMonth(viewedMonth.getMonth() - 1);
+      renderCalendar();
+    });
+
+    nextMonthButton.addEventListener('click', () => {
+      viewedMonth.setMonth(viewedMonth.getMonth() + 1);
+      renderCalendar();
+    });
+
+    calendarInput.addEventListener('change', () => {
+      viewedMonth = new Date(calendarInput.value || todayISO());
+      viewedMonth.setDate(1);
       render();
     });
 
     calendarInput.value = todayISO();
-    calendarInput.addEventListener('change', render);
+    viewedMonth = new Date(calendarInput.value);
+    viewedMonth.setDate(1);
 
     render();
   </script>
