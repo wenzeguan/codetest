@@ -296,7 +296,22 @@
             render();
           });
 
-          li.append(checkbox, content, editDeadlineButton);
+          const deleteButton = document.createElement('button');
+          deleteButton.type = 'button';
+          deleteButton.textContent = 'Delete';
+          deleteButton.addEventListener('click', () => {
+            const confirmed = window.confirm(`Delete task "${task.text}"?`);
+            if (!confirmed) return;
+            deleteTask(task.id);
+            render();
+          });
+
+          const actionGroup = document.createElement('div');
+          actionGroup.style.display = 'flex';
+          actionGroup.style.gap = '6px';
+          actionGroup.append(editDeadlineButton, deleteButton);
+
+          li.append(checkbox, content, actionGroup);
           ul.appendChild(li);
         });
 
@@ -330,6 +345,11 @@
       const target = tasks.find((task) => task.id === id);
       if (!target) return;
       target.deadline = deadline;
+      saveTasks(tasks);
+    }
+
+    function deleteTask(id) {
+      const tasks = loadTasks().filter((task) => task.id !== id);
       saveTasks(tasks);
     }
 
